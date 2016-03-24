@@ -35,7 +35,7 @@ public class TestVraRestClient {
 	
 	@Test
 	public void testGetRequestMachineLink() throws Exception {
-		String jsonStr = FileUtils.readFileToString(new File("d:\\vra\\catagoryview.json"));
+		String jsonStr = FileUtils.readFileToString(new File("d:\\vra\\catalogview.json"));
 		System.out.println(jsonStr);
 		VraRestClient app = new VraRestClient();
 		Method m = VraRestClient.class.getDeclaredMethod("getRequestMachineLink", String.class, String.class);

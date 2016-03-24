@@ -1,15 +1,9 @@
 package com.vmware.vra.apisample;
 
-import java.io.IOException;
-import java.net.HttpURLConnection;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
-
-import javax.net.ssl.*;
-import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,7 +16,6 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 
 import com.google.gson.Gson;
@@ -49,13 +42,15 @@ public class VraRestClient implements CommandLineRunner {
     @Override
     public void run(String... args) throws Exception {
     	init();
-    	login();
+    	login("tony@corp.local", "VMware1!", "vsphere.local");
     	findUser();
     	getCatalogItems();
     	getCatalogItemViews();
     	requestMachine("CentOS 6.3");
-    	
-    	//logout();
+    	getNetworks();
+    	getReservations();
+
+    	logout();
     }
     
     private void init() {
@@ -64,7 +59,7 @@ public class VraRestClient implements CommandLineRunner {
     	restTemplate = new RestTemplate(requestFactory);
     }
     
-    public void login() {
+    public void login(String username, String password, String tenant) {
     	String loginURL = host + "/identity/api/tokens";
     	HttpHeaders headers = new HttpHeaders();
     	headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON));
@@ -72,32 +67,40 @@ public class VraRestClient implements CommandLineRunner {
     	headers.setAccessControlAllowCredentials(true);
     	
     	HttpEntity<LoginRequest> request = new HttpEntity<>(
-    			new LoginRequest("tony@corp.local", "VMware1!", "vsphere.local"), headers);
+    			new LoginRequest(username, password, tenant), headers);
     	token = restTemplate.postForObject(loginURL, request, AuthorizationToken.class);
-    	System.out.println(">>>>token:" + token.getId());
+    	log.info(">>>>token:" + token.getId());
     }
     
     public void logout() {
-    	String url = host + "/" + token.getId();
-    	restTemplate.delete(url);
-    	/*
-    	HttpHeaders headers = new HttpHeaders();
+    	String url = host + "/identity/api/tokens/" + token.getId();
+    	AuthorizationHeaders headers = new AuthorizationHeaders(token);
     	headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON));
-    	headers.set("Authorization","Bearer " + token.getId());
     	HttpEntity<String> entity = new HttpEntity<String>(headers);
-    	restTemplate.exchange(url, HttpMethod.DELETE, entity, String.class);*/
+    	log.info("logout url: " + url);
+    	HttpEntity<String> response = restTemplate.exchange(url, HttpMethod.DELETE, entity, String.class);
+    	log.info(">>>logout: " + response );
     }
     
-    public void listTenants() {
-    	String url = host + "/identity/api/tenants";
-    	HttpHeaders headers = new HttpHeaders();
-    	headers.setAccept(Arrays.asList(MediaType.TEXT_HTML));
-    	headers.set("Authorization","Bearer " + token.getId());
+    public void getReservations() {
+    	String url = host + "/reservation-service/api/reservations";
+    	AuthorizationHeaders headers = new AuthorizationHeaders(token);
     	
     	HttpEntity<String> entity = new HttpEntity<String>(headers);
     	ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
-    	assertTrue(response.getStatusCode() == HttpStatus.OK);
-    	log.info("tenants:" + response.getBody()); 
+    	log.info(">>>reservations: " + response); 
+    }
+
+    public void getNetworks() {
+    	String url = host + "/network-service/api/networks";
+    	AuthorizationHeaders headers = new AuthorizationHeaders(token);
+    	headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON));
+    	headers.setContentType(MediaType.APPLICATION_JSON);
+    	
+    	HttpEntity<String> entity = new HttpEntity<String>(headers);
+    	ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
+    	//assertTrue(response.getStatusCode() == HttpStatus.OK);
+    	log.info("networks:" + response); 
     }
     
     public void findUser() {
@@ -210,50 +213,6 @@ public class VraRestClient implements CommandLineRunner {
     		log.info("name:" + clg.get("name").getAsString());
     	}
     	return res;
-    }
-}
-
-class TrustAllCertificatesHttpRequestFactory extends SimpleClientHttpRequestFactory {
-    private final HostnameVerifier verifier;
-    public TrustAllCertificatesHttpRequestFactory(HostnameVerifier verifier) {
-        this.verifier = verifier;
-    }
-
-    @Override
-    protected void prepareConnection(HttpURLConnection connection, String httpMethod) throws IOException {
-        if (connection instanceof HttpsURLConnection) {
-            ((HttpsURLConnection) connection).setHostnameVerifier(verifier);
-            ((HttpsURLConnection) connection).setSSLSocketFactory(trustSelfSignedSSL().getSocketFactory());
-            ((HttpsURLConnection) connection).setAllowUserInteraction(true);
-        }
-        super.prepareConnection(connection, httpMethod);
-    }
-
-    public SSLContext trustSelfSignedSSL() {
-        try {
-            SSLContext ctx = SSLContext.getInstance("TLS");
-            X509TrustManager tm = new X509TrustManager() {
-                public void checkClientTrusted(X509Certificate[] xcs, String string) throws CertificateException {
-                }
-                public void checkServerTrusted(X509Certificate[] xcs, String string) throws CertificateException {
-                }
-                public X509Certificate[] getAcceptedIssuers() {
-                    return null;
-                }
-            };
-            ctx.init(null, new TrustManager[] { tm }, null);
-            SSLContext.setDefault(ctx);
-            return ctx;
-        } catch (Exception ex) {
-            ex.printStackTrace();
-        }
-        return null;
-    }
-}
-
-class NullHostnameVerifier implements HostnameVerifier {
-    public boolean verify(String hostname, SSLSession session) {
-        return true;
     }
 }
  
