@@ -1,14 +1,11 @@
 package com.vmware.vra.apisample;
 
-import java.io.FileReader;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Set;
 
 import javax.net.ssl.*;
 import java.security.cert.CertificateException;
@@ -22,6 +19,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -32,19 +30,20 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.stream.JsonReader;
+
+import static org.junit.Assert.*;
 
 @SpringBootApplication
-public class Application implements CommandLineRunner {
+public class VraRestClient implements CommandLineRunner {
 
-    private static final Logger log = LoggerFactory.getLogger(Application.class);
+    private static final Logger log = LoggerFactory.getLogger(VraRestClient.class);
     
     private final static String  host = "https://vra-01a.corp.local";
     private AuthorizationToken token = null;
     private RestTemplate restTemplate = null;
 
     public static void main(String args[]) {
-        SpringApplication.run(Application.class);
+        SpringApplication.run(VraRestClient.class);
     }
 
     @Override
@@ -57,13 +56,11 @@ public class Application implements CommandLineRunner {
     	requestMachine("CentOS 6.3");
     	
     	//logout();
-    	//testJson();
     }
     
-    public void init() {
+    private void init() {
     	NullHostnameVerifier verifier = new NullHostnameVerifier(); 
         TrustAllCertificatesHttpRequestFactory requestFactory = new TrustAllCertificatesHttpRequestFactory(verifier);
-    	
     	restTemplate = new RestTemplate(requestFactory);
     }
     
@@ -99,77 +96,78 @@ public class Application implements CommandLineRunner {
     	
     	HttpEntity<String> entity = new HttpEntity<String>(headers);
     	ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
-    	//assertTrue(response.getStatusCode() == HttpStatus.OK);
+    	assertTrue(response.getStatusCode() == HttpStatus.OK);
     	log.info("tenants:" + response.getBody()); 
     }
     
     public void findUser() {
     	String url = host + "/identity/api/tenants/vsphere.local/principals/tony@corp.local";
-    	HttpHeaders headers = new HttpHeaders();
+    	AuthorizationHeaders headers = new AuthorizationHeaders(token);
     	headers.setAccept(Arrays.asList(MediaType.TEXT_HTML));
-    	headers.set("Authorization","Bearer " + token.getId());
     	
     	HttpEntity<String> entity = new HttpEntity<String>(headers);
     	ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
-    	//assertTrue(response.getStatusCode() == HttpStatus.OK);
+    	assertTrue(response.getStatusCode() == HttpStatus.OK);
     	log.info("tenants:" + response.getBody()); 
     }
     
     public List<String> getCatalogItems() {
     	String url = host + "/catalog-service/api/consumer/entitledCatalogItems";
-    	HttpHeaders headers = new HttpHeaders();
+    	AuthorizationHeaders headers = new AuthorizationHeaders(token);
     	headers.setContentType(MediaType.APPLICATION_JSON);
-    	headers.set("Authorization","Bearer " + token.getId());
     	
     	HttpEntity<String> entity = new HttpEntity<String>(headers);
     	ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
-    	//assertTrue(response.getStatusCode() == HttpStatus.OK);
+    	assertTrue(response.getStatusCode() == HttpStatus.OK);
     	log.info(">>>CatalogItems:" + response.getBody()); 
     	return getCatalogIds(response.getBody());
     }
     
     public void requestMachine(String catalogItemName) {
     	String catalogItemViews = getCatalogItemViews();
-    	Set<HATEOSLink> links = getLinksfromCatalogView(catalogItemViews, catalogItemName);
-    	HATEOSLink templateLink = null;
-    	HATEOSLink requestLink = null;
-    	for(HATEOSLink l: links) {
-    		if(l.getRel().contains("GET")) {
-    			templateLink = l;
-    		} else if(l.getRel().contains("POST")) {
-    			requestLink = l;
-    		}
-    	}
 
-    	HttpHeaders headers = new HttpHeaders();
+    	AuthorizationHeaders headers = new AuthorizationHeaders(token);
     	headers.setContentType(MediaType.APPLICATION_JSON);
-    	headers.set("Authorization","Bearer " + token.getId());
     	HttpEntity<HATEOSLink> entity = new HttpEntity<>(headers);
+    	
+    	HATEOSLink templateLink = getRequestTemplateLink(catalogItemViews, catalogItemName);
     	log.info(">>>templateLink URL: " + templateLink.getHref());
     	ResponseEntity<String> response = restTemplate.exchange(templateLink.getHref(), HttpMethod.GET, entity, String.class);
     	log.info(">>>RequestTemplate response: " + response.getBody());
+    	assertTrue(response.getStatusCode() == HttpStatus.OK);
     	
-    	log.info(">>>requestLink URL: " + requestLink.getHref());
+    	HATEOSLink requestLink = getRequestMachineLink(catalogItemViews, catalogItemName);
+    	log.info(">>>requestMachineLink URL: " + requestLink.getHref());
     	HttpEntity<String> requestEntity = new HttpEntity<>(response.getBody(), headers);
     	ResponseEntity<String> requestMachineResponse = restTemplate.exchange(requestLink.getHref(), HttpMethod.POST, requestEntity, String.class);
-    	log.info(">>>requestMachineResponse: " + requestMachineResponse.getBody());
+    	log.info(">>>requestMachineResponse: " + requestMachineResponse);
+    	assertTrue(requestMachineResponse.getStatusCode() == HttpStatus.CREATED);
+    }
+    
+    private HATEOSLink getRequestTemplateLink(String itemViewJsonStr, String catalogName) {
+    	HATEOSLink[] links = getLinksfromCatalogView(itemViewJsonStr, catalogName);
+    	return links[0];
+    }
+    
+    private HATEOSLink getRequestMachineLink(String itemViewJsonStr, String catalogName) {
+    	HATEOSLink[] links = getLinksfromCatalogView(itemViewJsonStr, catalogName);
+    	return links[1];
     }
     
     private String getCatalogItemViews() {
     	String url = host + "/catalog-service/api/consumer/entitledCatalogItemViews";
-    	HttpHeaders headers = new HttpHeaders();
+    	AuthorizationHeaders headers = new AuthorizationHeaders(token);
     	headers.setContentType(MediaType.APPLICATION_JSON);
-    	headers.set("Authorization","Bearer " + token.getId());
     	
     	HttpEntity<String> entity = new HttpEntity<String>(headers);
     	ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
-    	//assertTrue(response.getStatusCode() == HttpStatus.OK);
+    	assertTrue(response.getStatusCode() == HttpStatus.OK);
     	log.info(">>>CatalogItemViews:" + response.getBody()); 
     	return response.getBody();
     }
     
-    public Set<HATEOSLink> getLinksfromCatalogView(String jsonStr, String catalogName) {
-    	Set<HATEOSLink> res = new HashSet<>();
+    private HATEOSLink[] getLinksfromCatalogView(String jsonStr, String catalogName) {
+    	HATEOSLink[] res = new HATEOSLink[2];
     	Gson gson = new GsonBuilder().create();
     	JsonObject obj = gson.fromJson(jsonStr, JsonObject.class);
     	JsonArray items = obj.getAsJsonArray("content");
@@ -183,11 +181,18 @@ public class Application implements CommandLineRunner {
     			Iterator<JsonElement> itLinks = links.iterator();
     			while(itLinks.hasNext()) {
     				JsonObject link = itLinks.next().getAsJsonObject();
-    				res.add(gson.fromJson(link.toString(), HATEOSLink.class));
+    				HATEOSLink linkObj = gson.fromJson(link.toString(), HATEOSLink.class);
+    				if(linkObj.getRel().contains("GET")) {
+    					res[0] = linkObj;
+    				} else if(linkObj.getRel().contains("POST")) {
+    					res[1] = linkObj;
+    				}
     			}
     			break;
     		}    		
     	}
+    	assertNotNull(res[0]);
+    	assertNotNull(res[1]);
     	return res;
     }
     
@@ -205,32 +210,6 @@ public class Application implements CommandLineRunner {
     		log.info("name:" + clg.get("name").getAsString());
     	}
     	return res;
-    }
-    
-    public void testJson() {
-    	try {
-	    	Gson gson = new GsonBuilder().create();
-	    	JsonReader reader = new JsonReader(new FileReader("d:\\vra\\catalogItemResponse.json"));
-	    	JsonObject obj = gson.fromJson(reader, JsonObject.class);
-	    	//JsonObject obj = gson.fromJson("", JsonObject.class);
-	    	JsonArray items = obj.getAsJsonArray("content");
-	    	Iterator<JsonElement> it = items.iterator();
-	    	while(it.hasNext()) {
-	    		JsonObject item = it.next().getAsJsonObject();
-	    		JsonObject clg = item.getAsJsonObject("catalogItem");
-	    		System.out.println("id:" + clg.get("id").getAsString());
-	    		System.out.println("name:" + clg.get("name").getAsString());
-	    	}
-    	} catch(Exception e) {
-    		e.printStackTrace(System.out);
-    	}
-    }
-    
-    
-    public void test() {
-        RestTemplate restTemplate = new RestTemplate();
-        Quote quote = restTemplate.getForObject("http://gturnquist-quoters.cfapps.io/api/random", Quote.class);
-        log.info(quote.toString());    	
     }
 }
 
@@ -278,28 +257,3 @@ class NullHostnameVerifier implements HostnameVerifier {
     }
 }
  
-	/*
-	 * ClientHttpRequestFactory requestFactory = getClientHttpRequestFactory();
-RestTemplate restTemplate = new RestTemplate(requestFactory);
-
-HttpEntity<Foo> request = new HttpEntity<>(new Foo("bar"));
-Foo foo = restTemplate.postForObject(fooResourceUrl, request, Foo.class);
-assertThat(foo, notNullValue());
-assertThat(foo.getName(), is("bar"));
-
-SSLContext sslContext = SSLContexts.custom().loadTrustMaterial(null, new TrustSelfSignedStrategy()).useTLS().build();
-SSLConnectionSocketFactory connectionFactory = new SSLConnectionSocketFactory(sslContext, new AllowAllHostnameVerifier());
-BasicCredentialsProvider credentialsProvider = new BasicCredentialsProvider();
-credentialsProvider.setCredentials(AuthScope.ANY, new UsernamePasswordCredentials("username", "mypassword"));
-
-HttpClient httpClient = HttpClientBuilder.create()
-                                 .setSSLSocketFactory(connectionFactory)
-                                 .setDefaultCredentialsProvider(credentialsProvider)
-                                 .build();
-
-ClientHttpRequestFactory requestFactory = new HttpComponentsClientHttpRequestFactory(httpClient);
-
-
-	 */
-	
-	//BasicCredentialsProvider credentialsProvider = new BasicCredentialsProvider();
